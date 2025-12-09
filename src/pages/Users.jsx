@@ -9,17 +9,32 @@ const UsersPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const { user: currentUser } = useAuth();
   const [promoteEmail, setPromoteEmail] = useState("");
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (retryCount = 0) => {
     try {
+      setError(null);
       const { data } = await axios.get("/admin/users");
       setUsers(data);
     } catch (error) {
       console.error(error);
+
+      if (error.response?.status === 429 && retryCount < 3) {
+        const delay = Math.pow(2, retryCount) * 1000;
+        setError(`Rate limited. Retrying in ${delay / 1000} seconds...`);
+        setTimeout(() => fetchUsers(retryCount + 1), delay);
+        return;
+      }
+
+      setError(
+        error.response?.status === 429
+          ? "Too many requests. Please try again later."
+          : "Failed to load users. Please try again."
+      );
     } finally {
       setLoading(false);
     }

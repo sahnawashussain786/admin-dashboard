@@ -5,14 +5,29 @@ import { MessageSquare } from "lucide-react";
 const MessagesPage = () => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const fetchMessages = async () => {
+    const fetchMessages = async (retryCount = 0) => {
       try {
+        setError(null);
         const { data } = await axios.get("/admin/messages");
         setMessages(data);
       } catch (error) {
         console.error(error);
+
+        if (error.response?.status === 429 && retryCount < 3) {
+          const delay = Math.pow(2, retryCount) * 1000;
+          setError(`Rate limited. Retrying in ${delay / 1000} seconds...`);
+          setTimeout(() => fetchMessages(retryCount + 1), delay);
+          return;
+        }
+
+        setError(
+          error.response?.status === 429
+            ? "Too many requests. Please try again later."
+            : "Failed to load messages. Please try again."
+        );
       } finally {
         setLoading(false);
       }

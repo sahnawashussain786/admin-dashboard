@@ -5,14 +5,29 @@ import { CreditCard, DollarSign } from "lucide-react";
 const PaymentsPage = () => {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const fetchPayments = async () => {
+    const fetchPayments = async (retryCount = 0) => {
       try {
+        setError(null);
         const { data } = await axios.get("/admin/payments");
         setPayments(data);
       } catch (error) {
         console.error(error);
+
+        if (error.response?.status === 429 && retryCount < 3) {
+          const delay = Math.pow(2, retryCount) * 1000;
+          setError(`Rate limited. Retrying in ${delay / 1000} seconds...`);
+          setTimeout(() => fetchPayments(retryCount + 1), delay);
+          return;
+        }
+
+        setError(
+          error.response?.status === 429
+            ? "Too many requests. Please try again later."
+            : "Failed to load payments. Please try again."
+        );
       } finally {
         setLoading(false);
       }

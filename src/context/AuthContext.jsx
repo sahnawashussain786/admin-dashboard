@@ -11,10 +11,13 @@ export const AuthProvider = ({ children }) => {
   const { signOut } = useClerk();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Configure axios defaults
   axios.defaults.baseURL =
     import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+  axios.defaults.timeout = 10000; // 10 second timeout
 
   const logout = async () => {
     await signOut();
@@ -24,10 +27,14 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    const syncUser = async () => {
+    const syncUser = async (retryCount = 0) => {
       if (!isClerkLoaded) return;
 
+      // Prevent duplicate sync requests
+      if (isSyncing) return;
+
       if (isSignedIn && clerkUser) {
+        setIsSyncing(true);
         try {
           const { data } = await axios.post("/auth/sync", {
             clerkId: clerkUser.id,
@@ -44,16 +51,50 @@ export const AuthProvider = ({ children }) => {
             "Authorization"
           ] = `Bearer ${data.token}`;
           setUser(data);
+          setError(null);
         } catch (error) {
           console.error("Sync failed:", error);
-          await logout();
-          alert("Access Denied: You are not an admin.");
+
+          // Handle 429 rate limit errors with exponential backoff
+          if (error.response?.status === 429 && retryCount < 3) {
+            const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+            console.log(`Rate limited. Retrying in ${delay}ms...`);
+            setError(
+              `Too many requests. Retrying in ${delay / 1000} seconds...`
+            );
+            setTimeout(() => {
+              setIsSyncing(false);
+              syncUser(retryCount + 1);
+            }, delay);
+            return;
+          }
+
+          // Handle other errors
+          if (error.response?.status === 429) {
+            setError(
+              "Service temporarily unavailable. Please try again in a few minutes."
+            );
+          } else if (error.message === "Not authorized as admin") {
+            await logout();
+            setError("Access Denied: You are not an admin.");
+          } else if (!error.response) {
+            setError(
+              "Unable to connect to server. Please check your internet connection."
+            );
+          } else {
+            setError("Authentication failed. Please try again.");
+          }
+
+          setUser(null);
+        } finally {
+          setIsSyncing(false);
         }
       } else {
         // Not signed in
         localStorage.removeItem("adminToken");
         delete axios.defaults.headers.common["Authorization"];
         setUser(null);
+        setError(null);
       }
       setLoading(false);
     };
@@ -63,9 +104,19 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, logout, loading: loading || !isClerkLoaded }}
+      value={{ user, logout, loading: loading || !isClerkLoaded, error }}
     >
-      {!loading && children}
+      {!loading && (
+        <>
+          {error && (
+            <div className="fixed top-4 right-4 bg-red-500/10 border border-red-500 text-red-400 px-4 py-3 rounded-lg max-w-md z-50">
+              <p className="font-medium">Error</p>
+              <p className="text-sm">{error}</p>
+            </div>
+          )}
+          {children}
+        </>
+      )}
     </AuthContext.Provider>
   );
 };

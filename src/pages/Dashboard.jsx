@@ -28,22 +28,65 @@ const StatCard = ({ title, value, icon: Icon, color }) => (
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
-    const fetchStats = async () => {
+    const fetchStats = async (retryCount = 0) => {
       try {
+        setError(null);
         const { data } = await axios.get("/admin/stats");
         setStats(data);
       } catch (error) {
         console.error("Failed to fetch stats", error);
+
+        // Handle 429 rate limit errors with exponential backoff
+        if (error.response?.status === 429 && retryCount < 3) {
+          const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+          setRetrying(true);
+          setError(`Rate limited. Retrying in ${delay / 1000} seconds...`);
+          setTimeout(() => {
+            setRetrying(false);
+            fetchStats(retryCount + 1);
+          }, delay);
+          return;
+        }
+
+        // Handle other errors
+        if (error.response?.status === 429) {
+          setError("Too many requests. Please try again in a few minutes.");
+        } else if (!error.response) {
+          setError(
+            "Unable to connect to server. Please check your internet connection."
+          );
+        } else {
+          setError("Failed to load dashboard statistics. Please try again.");
+        }
       } finally {
-        setLoading(false);
+        if (!retrying) {
+          setLoading(false);
+        }
       }
     };
     fetchStats();
   }, []);
 
   if (loading) return <div className="text-white">Loading stats...</div>;
+  if (error)
+    return (
+      <div className="bg-red-500/10 border border-red-500 text-red-400 p-6 rounded-xl">
+        <h3 className="font-bold mb-2">Error Loading Dashboard</h3>
+        <p>{error}</p>
+        {!retrying && (
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    );
 
   return (
     <div className="space-y-8">
