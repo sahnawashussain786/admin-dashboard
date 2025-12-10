@@ -14,11 +14,6 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Configure axios defaults
-  axios.defaults.baseURL =
-    import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
-  axios.defaults.timeout = 10000; // 10 second timeout
-
   const logout = async () => {
     await signOut();
     localStorage.removeItem("adminToken");
